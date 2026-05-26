@@ -1,0 +1,21 @@
+*.gem
+*.rbc
+/.bundle/
+Gemfile.lock
+/pkg/
+/tmp/
+/coverage/
+.rspec_status
+
+# Bundled binaries downloaded by extconf.rb — never commit.
+/lib/leakferret/bin/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
