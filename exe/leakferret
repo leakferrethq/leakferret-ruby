@@ -1,0 +1,8 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Pass-through to the bundled native binary. Same CLI as the Rust crate.
+require 'secrets_dev'
+
+bin = SecretsDev::Binary.path
+exec(bin, *ARGV)
