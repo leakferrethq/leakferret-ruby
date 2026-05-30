@@ -1,16 +1,43 @@
-# leakferret (Ruby wrapper)
+# leakferret (Ruby gem)
+
+> MCP-native secret scanner — verified findings, agent-applied rewrites.
 
 Ruby gem wrapper around the native [`leakferret`](https://github.com/leakferrethq/leakferret)
-binary (written in Rust). Same `Findings` API as the pre-alpha 0.0.x
-Ruby gem; the engine is the single statically-linked binary downloaded
-once per platform at install time.
+binary. This gem ships no scanning logic of its own: it installs a tiny Ruby
+shim plus a small executable, and downloads the prebuilt, statically-linked
+binary (written in Rust) from GitHub Releases once per platform at install
+time. All the work — scan, classify, verify, rewrite — happens in that single
+binary.
 
-## Why a thin wrapper
+This is the same packaging pattern used by `ruff`, `biome`, and `esbuild`:
+distributing the toolchain to build a Rust engine on every machine is
+unfriendly, so we ship the compiled engine instead.
 
-Distributing pure Ruby gem-installing a Rust toolchain is unfriendly.
-The pattern here matches `ruff` (Python), `biome` (npm), and `esbuild`
-(npm): the gem ships a tiny Ruby shim, and `extconf.rb` downloads the
-prebuilt binary from GitHub Releases.
+## What leakferret does
+
+leakferret finds hardcoded secrets and API keys in your code and helps you
+remove them, in five stations:
+
+1. **Scan** — regex pre-filter over files; respects `.gitignore` and also reads
+   dotfiles like `.env`.
+2. **Catalog** — a signed database of known-public example credentials (Stripe
+   test keys, `AKIAIOSFODNN7EXAMPLE`, jwt.io samples) so documented examples are
+   marked `FIXTURE` instead of false-alarming.
+3. **Classify** — a `REAL` / `FIXTURE` / `UNKNOWN` verdict, from offline
+   heuristics or by asking the host editor/agent language model (no extra API
+   key, no cost).
+4. **Verify** — a real but harmless API call to the provider (AWS SigV4,
+   GitHub, GitLab, Stripe, OpenAI, Anthropic, Slack, Twilio, SendGrid, Mailgun,
+   Datadog, Heroku, npm, PyPI, DigitalOcean) to confirm a key is live, plus a
+   trufflehog fallback.
+5. **Rewrite** — swap a hardcoded literal for an environment-variable lookup
+   (`ENV.fetch` in Ruby, `process.env` in JS, `os.environ` in Python), add a
+   `.env.example` line, and print secret-manager seed commands.
+
+**Privacy invariant:** the full secret value never leaves your machine. Only a
+redacted first-4-plus-last-4 preview (e.g. `AKIA...4XYZ`) is ever written to a
+report, log, network message, or model prompt. Verification calls go straight
+from your machine to the provider — leakferret has no servers.
 
 ## Install
 
@@ -18,13 +45,35 @@ prebuilt binary from GitHub Releases.
 gem install leakferret
 ```
 
-This downloads `leakferret-{version}-{platform}.tar.gz` from
-GitHub Releases and unpacks it into `lib/leakferret/bin/`.
+This downloads `leakferret-{version}-{platform}.tar.gz` from GitHub Releases and
+unpacks the binary into `lib/leakferret/bin/`.
 
-Set `LEAKFERRET_SKIP_DOWNLOAD=1` if you want to position the binary
-yourself (e.g. for air-gapped CI).
+Add it to a `Gemfile` for project-local use:
 
-## API
+```ruby
+gem 'leakferret'
+```
+
+Requires Ruby >= 3.1.
+
+## CLI
+
+The gem installs a `leakferret` executable that simply `exec`s the binary, so
+every subcommand and flag works exactly as upstream:
+
+```bash
+leakferret scan .
+leakferret verify . --only-verified
+leakferret rewrite . --apply --backend doppler
+leakferret baseline init
+leakferret catalog info
+leakferret mcp                 # MCP server on stdio
+```
+
+`leakferret scan --git` walks commit history. Output formats are `pretty`
+(colored terminal), `json`, and `sarif` (for GitHub Code Scanning).
+
+## Ruby API
 
 ```ruby
 require 'leakferret'
@@ -32,7 +81,7 @@ require 'leakferret'
 # Regex pre-filter only.
 findings = Leakferret.scan('.')
 
-# + provider-verified (live HTTP to GitHub/Stripe/AWS/...).
+# + provider-verified (live HTTP to GitHub / Stripe / AWS / ...).
 findings = Leakferret.verify('.', mode: 'only-verified')
 
 # + propose rewrites for REAL findings.
@@ -42,27 +91,29 @@ findings = Leakferret.rewrite('.', backend: 'doppler')
 Leakferret.rewrite('.', apply: true)
 ```
 
-Each `Finding` is a hash with `path`, `line`, `column`, `pattern`,
-`severity`, `verdict`, `match_redacted`, `confidence`, `verification`,
-`fingerprint`.
+Each `Finding` is a hash with `path`, `line`, `column`, `pattern`, `severity`,
+`verdict`, `match_redacted`, `confidence`, `verification`, and `fingerprint`.
 
-## CLI
+## Using a local binary
 
-The gem installs a `leakferret` executable that just `exec`s the
-binary, so all subcommands and flags work identically:
+Every leakferret wrapper honors the `LEAKFERRET_BIN` environment variable. Point
+it at a binary on disk and the wrapper runs that instead of the downloaded copy:
 
 ```bash
+export LEAKFERRET_BIN=/opt/leakferret/leakferret
 leakferret scan .
-leakferret verify . --only-verified
-leakferret rewrite . --apply
-leakferret mcp
-leakferret baseline init
-leakferret catalog info
 ```
+
+For air-gapped or offline installs, set `LEAKFERRET_SKIP_DOWNLOAD=1` to skip the
+release download and position the binary yourself.
 
 ## License
 
-MIT.
+MIT for this gem and the bundled binary. The fixture catalog **data** is
+CC-BY-SA-4.0 — see [`leakferret-catalog`](https://github.com/leakferrethq/leakferret-catalog).
 
-The bundled binary is also MIT. The fixture catalog data shipped with
-it is CC-BY-SA-4.0 — see `leakferret-catalog` for details.
+---
+
+Part of [leakferret](https://github.com/leakferrethq/leakferret) ·
+[leakferret.com](https://leakferret.com) ·
+maintained by Maria Khan &lt;missusk@protonmail.com&gt;.
