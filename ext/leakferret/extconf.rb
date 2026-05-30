@@ -49,7 +49,9 @@ log "downloading #{URL}"
 begin
   tar_path = Pathname.new(Dir.tmpdir).join("leakferret-#{VERSION}-#{TRIPLE}.tar.gz")
   URI.open(URL) { |io| File.binwrite(tar_path, io.read) }
-  system('tar', '-xzf', tar_path.to_s, '-C', BIN_DIR.to_s) ||
+  # The archive nests everything under leakferret-<version>-<triple>/;
+  # strip that so the binary lands directly in BIN_DIR.
+  system('tar', '-xzf', tar_path.to_s, '--strip-components=1', '-C', BIN_DIR.to_s) ||
     abort("tar extraction failed for #{tar_path}")
   FileUtils.chmod(0o755, dest) unless Leakferret::Platform.windows?
   log "installed binary at #{dest}"
