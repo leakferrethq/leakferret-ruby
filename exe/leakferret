@@ -2,7 +2,7 @@
 # frozen_string_literal: true
 
 # Pass-through to the bundled native binary. Same CLI as the Rust crate.
-require 'secrets_dev'
+require 'leakferret'
 
-bin = SecretsDev::Binary.path
+bin = Leakferret::Binary.path
 exec(bin, *ARGV)

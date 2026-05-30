@@ -12,6 +12,13 @@ module Leakferret
     # extconf.rb didn't run, or the user installed from source without
     # the download step).
     def path
+      override = ENV['LEAKFERRET_BIN']
+      unless override.nil? || override.empty?
+        raise BinaryNotFoundError, "LEAKFERRET_BIN points to a missing file: #{override}" unless File.file?(override)
+
+        return override
+      end
+
       candidate = BIN_DIR.join(Platform.binary_name)
       raise BinaryNotFoundError, install_instructions(candidate) unless candidate.file?
 
