@@ -49,8 +49,9 @@ from your machine to the provider — leakferret has no servers.
 gem install leakferret
 ```
 
-This downloads `leakferret-{version}-{platform}.tar.gz` from GitHub Releases and
-unpacks the binary into `lib/leakferret/bin/`.
+The platform binary (`leakferret-{version}-{platform}.tar.gz` from GitHub
+Releases) is downloaded automatically on first use and cached under your home
+directory — no Rust toolchain required.
 
 Add it to a `Gemfile` for project-local use:
 
@@ -95,8 +96,91 @@ findings = Leakferret.rewrite('.', backend: 'doppler')
 Leakferret.rewrite('.', apply: true)
 ```
 
-Each `Finding` is a hash with `path`, `line`, `column`, `pattern`, `severity`,
-`verdict`, `match_redacted`, `confidence`, `verification`, and `fingerprint`.
+Each `Finding` is a hash with `path`, `line`, `column`, `pattern`, `severity`
+(`critical`/`high`/`medium`/`low`), `verdict` (`real`/`fixture`/`unknown`),
+`match_redacted`, `confidence`, `verification`, and `fingerprint`.
+
+## Rewrite a leak
+
+`rewrite` turns a hardcoded secret into an env-var lookup and helps you move it
+into a secret manager:
+
+```bash
+leakferret rewrite . --dry-run-diff               # preview the change, touch nothing
+leakferret rewrite . --apply                      # write `ENV.fetch("KEY")` in place + add to .env.example
+leakferret rewrite . --apply --backend doppler    # also print seed commands for your manager
+```
+
+`--backend` accepts `env` (default), `vault`, `doppler`, `aws-secrets-manager`,
+`infisical`. By default it only rewrites findings confirmed **REAL/live**; add
+`--include-unknown` to also fix unconfirmed candidates.
+
+## Use it in CI
+
+leakferret is one binary with clear exit codes (`0` = clean, `1` = findings), so
+it drops into any CI. The recommended pattern: **baseline once**, then `verify`
+on every build so you only fail on *new* secrets.
+
+```bash
+# One-time, on a repo that may already have findings:
+leakferret baseline init            # fingerprints current findings (HMAC, never the raw secret)
+git add .leakferret-baseline.json   # commit it — the per-repo salt is auto-gitignored
+```
+
+After that, `verify` ignores anything in the baseline and fails only on new leaks.
+
+**GitHub Actions** — use the dedicated action (uploads SARIF to Code Scanning):
+
+```yaml
+- uses: leakferrethq/leakferret-action@v1
+  with: { path: ., fail-on: any }
+```
+
+**CircleCI:**
+
+```yaml
+jobs:
+  secrets:
+    docker: [{ image: cimg/ruby:3.3 }]
+    steps:
+      - checkout
+      - run: gem install leakferret
+      - run: leakferret verify . --format sarif > leakferret.sarif
+      - store_artifacts: { path: leakferret.sarif }
+```
+
+**GitLab CI / Argo Workflows / Jenkins / anything else** — identical recipe:
+
+```bash
+gem install leakferret
+leakferret verify .                 # exits 1 on any REAL finding -> fails the job
+```
+
+Useful flags: `--only-verified` (fail only on provider-confirmed live keys),
+`--verify-mode ever-verified` (with a baseline, fail on anything that *ever*
+verified live), `--format sarif|json`.
+
+## Use it with AI agents (MCP)
+
+leakferret is also an MCP server, so a coding agent (Cursor, Claude, Continue)
+can scan, verify, and rewrite *before it commits*. Add it to your editor's MCP
+config:
+
+```json
+{
+  "mcpServers": {
+    "leakferret": { "command": "leakferret", "args": ["mcp"] }
+  }
+}
+```
+
+In **Cursor**: Settings → MCP → Add. In **Claude Desktop**: the `mcpServers`
+block of `claude_desktop_config.json`. Tools exposed: `scan_repository`,
+`classify_candidates`, `verify_finding`, `propose_rewrite`, `baseline_diff`.
+
+> Running `leakferret mcp` directly in a terminal looks like it hangs — that's
+> correct. It's a stdio JSON-RPC server waiting for your editor to connect, not
+> a command you run by hand.
 
 ## Using a local binary
 
