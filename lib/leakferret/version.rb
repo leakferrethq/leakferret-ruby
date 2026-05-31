@@ -2,7 +2,7 @@
 
 module Leakferret
   # The gem's own version.
-  VERSION = '0.1.2'
+  VERSION = '0.1.3'
 
   # The native binary release this gem downloads. Tracks the leakferret
   # core release, which may move independently of the gem's own version

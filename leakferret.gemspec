@@ -8,15 +8,14 @@ Gem::Specification.new do |spec|
 
   spec.summary     = 'Context-aware secret detection (Ruby wrapper for the leakferret binary).'
   spec.description = <<~DESC
-    Ruby wrapper around the native `leakferret` binary (written in Rust).
-    Same Findings API as the pre-alpha 0.0.x Ruby gem, but the heavy lifting
-    runs in a single statically-linked binary downloaded on install.
+    Context-aware secret scanning for Ruby projects. A thin wrapper around the
+    native leakferret binary (written in Rust): it finds hardcoded secrets,
+    confirms which ones are actually live by calling the provider, and rewrites
+    them to read from environment variables instead. The platform binary is
+    downloaded automatically on first use, so no Rust toolchain is required.
 
-    Provides:
-      - Leakferret.scan(path)    -> [Finding, ...]
-      - Leakferret.verify(path)  -> [Finding, ...]  (provider-verified)
-      - Leakferret.rewrite(path) -> [Finding, ...]  (with .replacement filled)
-      - `leakferret` executable that just exec's the binary.
+    The API exposes Leakferret.scan, Leakferret.verify, and Leakferret.rewrite
+    (each returning Finding objects), plus a `leakferret` command-line tool.
   DESC
   spec.homepage    = 'https://github.com/leakferrethq/leakferret-ruby'
   spec.license     = 'MIT'
@@ -39,7 +38,8 @@ Gem::Specification.new do |spec|
   spec.executables = ['leakferret']
   spec.require_paths = ['lib']
 
-  # The ext/ extconf.rb downloads the right platform binary at install time
-  # and unpacks it into `lib/leakferret/bin/`.
+  # ext/extconf.rb best-effort pre-fetches the platform binary into a
+  # user cache at install time; lib/leakferret/binary.rb also fetches it
+  # lazily on first use, so the gem works even if the pre-fetch is skipped.
   spec.extensions = ['ext/leakferret/extconf.rb']
 end
