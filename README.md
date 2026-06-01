@@ -6,6 +6,9 @@
 
 > MCP-native secret scanner — verified findings, agent-applied rewrites.
 
+[![Gem Version](https://img.shields.io/gem/v/leakferret?logo=rubygems&logoColor=white)](https://rubygems.org/gems/leakferret)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/leakferrethq/leakferret/blob/master/LICENSE.txt)
+
 <p align="center">
   <img src="https://raw.githubusercontent.com/leakferrethq/leakferret/master/brand/demo.gif" alt="leakferret finds, verifies, and rewrites a leaked secret" width="760">
 </p>
