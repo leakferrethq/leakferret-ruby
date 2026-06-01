@@ -18,6 +18,20 @@ module Leakferret
     # A binary vendored inside the gem, if one was shipped (normally empty).
     BUNDLED_DIR = Pathname.new(__dir__).join('bin').freeze
 
+    # SHA256 of each release tarball, pinned to BINARY_VERSION. The download is
+    # verified against these before the archive is ever unpacked, so a tampered
+    # or corrupted release asset is rejected instead of being executed. Because
+    # the digests live in the gem source, auditing the published gem tells you
+    # exactly which binary bytes it will run. Regenerate on every binary bump
+    # from the release's `*.tar.gz.sha256` files.
+    CHECKSUMS = {
+      'aarch64-apple-darwin'     => '62d7152954e3e2e50d8423c8a1e792ba1783123b8a9d8c5fbc2a71013e890992',
+      'aarch64-pc-windows-msvc'  => '6ad3eb20a661579c11857259159f8fb55b26f72608c75ecc206fff5f9da9c800',
+      'x86_64-apple-darwin'      => 'd8b28edf427b975412458007069a848e16cea45825e43dff3652bdcd3fd3f1d3',
+      'x86_64-pc-windows-msvc'   => 'f447424f148a6874dc2ead208eb460a9f6b20d6ddbce6f74ca9b2d47655e1b2b',
+      'x86_64-unknown-linux-gnu' => 'bf24746f1188d14b2b420e760ebd374a4f88a68ea1b718e7977d8c7309a9f1da'
+    }.freeze
+
     module_function
 
     # Absolute path to the native binary, downloading it on first use if
@@ -77,23 +91,44 @@ module Leakferret
       require 'fileutils'
       require 'open-uri'
       require 'zlib'
+      require 'digest'
+      require 'stringio'
       require 'rubygems/package'
 
-      FileUtils.mkdir_p(dest.dirname)
-      # Stream download -> gunzip -> untar in pure Ruby (no external `tar`,
-      # which on Windows mis-reads `C:\` as a remote host). The archive nests
-      # everything under leakferret-<version>-<triple>/, so match by basename.
-      found = false
-      URI.open(download_url) do |io| # rubocop:disable Security/Open
-        Zlib::GzipReader.wrap(io) do |gz|
-          Gem::Package::TarReader.new(gz) do |tar|
-            tar.each do |entry|
-              next unless entry.file?
-              next unless File.basename(entry.full_name) == Platform.binary_name
+      expected = CHECKSUMS[Platform.triple]
+      if expected.nil?
+        raise BinaryNotFoundError,
+              "no pinned checksum for platform #{Platform.triple}; refusing to run an " \
+              'unverified binary. Build from source and set LEAKFERRET_BIN instead.'
+      end
 
-              File.binwrite(dest, entry.read)
-              found = true
-            end
+      FileUtils.mkdir_p(dest.dirname)
+
+      # Download the whole tarball, verify its SHA256 against the pinned value,
+      # and only then unpack. Nothing is written to the cache (let alone marked
+      # executable) until the bytes match, so a tampered or truncated release
+      # asset is rejected rather than run.
+      tarball = URI.open(download_url, &:read) # rubocop:disable Security/Open
+      actual = Digest::SHA256.hexdigest(tarball)
+      unless actual.casecmp?(expected)
+        raise BinaryNotFoundError,
+              "checksum mismatch for #{download_url}\n" \
+              "  expected #{expected}\n  got      #{actual}\n" \
+              'Refusing to install a binary that does not match the pinned hash.'
+      end
+
+      # Unpack in pure Ruby (no external `tar`, which on Windows mis-reads `C:\`
+      # as a remote host). The archive nests everything under
+      # leakferret-<version>-<triple>/, so match by basename.
+      found = false
+      Zlib::GzipReader.wrap(StringIO.new(tarball)) do |gz|
+        Gem::Package::TarReader.new(gz) do |tar|
+          tar.each do |entry|
+            next unless entry.file?
+            next unless File.basename(entry.full_name) == Platform.binary_name
+
+            File.binwrite(dest, entry.read)
+            found = true
           end
         end
       end
