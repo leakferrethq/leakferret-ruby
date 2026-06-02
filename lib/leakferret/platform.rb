@@ -5,9 +5,18 @@ require 'rbconfig'
 require_relative 'error'
 
 module Leakferret
+  # Host detection for picking the right release asset. Maps the running
+  # Ruby's `RbConfig` host to a Rust target triple and binary name.
+  #
+  # @api private
   module Platform
     module_function
 
+    # The Rust target triple for the current host (e.g.
+    # `x86_64-unknown-linux-gnu`).
+    #
+    # @return [String] the target triple
+    # @raise [Error] on an unsupported CPU or OS, or aarch64-linux (no asset yet)
     def triple
       cpu = case RbConfig::CONFIG['host_cpu']
             when /x86_64|amd64|x64/ then 'x86_64'
@@ -29,10 +38,13 @@ module Leakferret
       end
     end
 
+    # Executable name for the current OS.
+    # @return [String] `"leakferret.exe"` on Windows, otherwise `"leakferret"`
     def binary_name
       windows? ? 'leakferret.exe' : 'leakferret'
     end
 
+    # @return [Integer, nil] truthy when the host OS is Windows
     def windows?
       RbConfig::CONFIG['host_os'] =~ /mswin|mingw|cygwin/
     end

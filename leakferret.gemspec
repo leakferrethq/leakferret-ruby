@@ -22,9 +22,10 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = '>= 3.1.0'
 
-  spec.metadata['homepage_uri']    = spec.homepage
-  spec.metadata['source_code_uri'] = spec.homepage
-  spec.metadata['changelog_uri']   = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  spec.metadata['homepage_uri']      = spec.homepage
+  spec.metadata['source_code_uri']   = spec.homepage
+  spec.metadata['changelog_uri']     = "#{spec.homepage}/blob/main/CHANGELOG.md"
+  spec.metadata['documentation_uri'] = 'https://rubydoc.info/gems/leakferret'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
   spec.files = Dir.glob(%w[
@@ -33,6 +34,7 @@ Gem::Specification.new do |spec|
     exe/*
     README.md
     LICENSE.txt
+    .yardopts
   ])
   spec.bindir      = 'exe'
   spec.executables = ['leakferret']

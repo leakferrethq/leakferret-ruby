@@ -14,6 +14,8 @@ module Leakferret
   # throwaway temp dir, so anything written relative to the gem during
   # `gem install` is discarded — the cache path sidesteps that entirely and
   # also lets a plain `gem install` (no extension) work.
+  #
+  # @api private
   module Binary
     # A binary vendored inside the gem, if one was shipped (normally empty).
     BUNDLED_DIR = Pathname.new(__dir__).join('bin').freeze
@@ -40,6 +42,10 @@ module Leakferret
     #   2. lib/leakferret/bin/     — a binary vendored in the gem
     #   3. the per-version cache   — fetched on a prior run or at install
     #   4. download into the cache now
+    #
+    # @return [String] absolute path to the executable
+    # @raise [BinaryNotFoundError] if the override is missing, or the binary is
+    #   absent and cannot be downloaded
     def path
       override = ENV['LEAKFERRET_BIN']
       unless override.nil? || override.empty?
@@ -63,6 +69,8 @@ module Leakferret
 
     # User-writable cache directory, namespaced by the binary version so a
     # gem upgrade fetches a fresh binary instead of reusing a stale one.
+    #
+    # @return [Pathname] the per-version cache directory
     def cache_dir
       base =
         if Platform.windows?
@@ -73,17 +81,25 @@ module Leakferret
       Pathname.new(base).join('leakferret', BINARY_VERSION)
     end
 
+    # @return [Pathname] the cached binary's full path for this platform
     def cache_path
       cache_dir.join(Platform.binary_name)
     end
 
+    # @return [String] the GitHub release download URL for this platform's tarball
     def download_url
       'https://github.com/leakferrethq/leakferret/releases/download/' \
         "v#{BINARY_VERSION}/leakferret-#{BINARY_VERSION}-#{Platform.triple}.tar.gz"
     end
 
-    # Download and unpack the binary into the cache. Idempotent: a no-op when
-    # the binary is already cached. Returns the path; raises on failure.
+    # Download, checksum-verify, and unpack the binary into the cache.
+    # Idempotent: a no-op when the binary is already cached. The SHA256 is
+    # checked against the pinned {CHECKSUMS} value before anything is written
+    # or marked executable, so a tampered or truncated asset is rejected.
+    #
+    # @return [String] absolute path to the cached binary
+    # @raise [BinaryNotFoundError] on an unknown platform, a checksum mismatch,
+    #   or a binary missing from the downloaded archive
     def ensure!
       dest = cache_path
       return dest.to_s if dest.file?
@@ -138,6 +154,11 @@ module Leakferret
       dest.to_s
     end
 
+    # Human-readable fallback message shown when the binary is absent and the
+    # automatic download failed.
+    #
+    # @param candidate [Pathname] the cache path the binary was expected at
+    # @return [String] multi-line manual-install instructions
     def install_instructions(candidate)
       <<~MSG
         leakferret native binary not found, and the automatic download failed.
