@@ -5,9 +5,10 @@ module Leakferret
   # @return [String]
   VERSION = '0.1.15'
 
-  # The native binary release this gem downloads and runs. Tracks the
-  # leakferret core release and can move independently of {VERSION}
-  # (e.g. a gem-only bugfix keeps the same binary).
+  # The native binary release this gem bundles and runs. The release workflow
+  # stages this version's binary into each precompiled platform gem. Tracks the
+  # leakferret core release and can move independently of {VERSION} (e.g. a
+  # gem-only bugfix keeps the same binary).
   # @return [String]
   BINARY_VERSION = '0.1.9'
 end

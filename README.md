@@ -19,13 +19,14 @@ binary. This gem ships no scanning logic of its own: it installs a tiny Ruby
 shim plus the prebuilt, statically-linked engine (written in Rust). All the
 work — scan, classify, verify, rewrite — happens in that single binary.
 
-On common platforms (Linux, macOS, Windows on x86-64/arm64) you get a
-**precompiled platform gem** with the binary bundled inside it, the same way
-`nokogiri` and `sorbet-static` ship their native code. The binary travels
-through RubyGems with the gem — there is **no download, no network access, and
-no Rust toolchain** — and you can audit exactly what you will run with
-`gem unpack leakferret`. On any other platform you get the source gem, which
-downloads and SHA256-verifies the binary on first use.
+You get a **precompiled platform gem** with the binary bundled inside it, the
+same way `nokogiri` and `sorbet-static` ship their native code, for x86_64
+Linux (glibc), macOS (x86_64 and arm64), and x86_64 Windows. The binary travels
+through RubyGems with the gem — **no download, no network access, no Rust
+toolchain** — and you can audit exactly what you will run with
+`gem unpack leakferret`. The gem has **no fetch-and-run code at all**. On any
+other platform the source gem installs and points you at a one-line fix (build
+from source, or set `LEAKFERRET_BIN`); it never downloads a binary.
 
 ## What leakferret does
 
@@ -68,9 +69,10 @@ gem unpack leakferret        # the bundled binary is at lib/leakferret/bin/
 ```
 
 Released gems carry GitHub build provenance (SLSA), so you can verify each gem
-was built from the tagged source in CI. Only the source/fallback gem (used on
-platforms without a prebuilt binary, e.g. aarch64-linux) downloads the binary,
-and it checks the bytes against a SHA256 pinned in the gem before running them.
+was built from the tagged source in CI. On a platform without a prebuilt binary
+(e.g. aarch64-linux or Alpine/musl), the source gem still installs — so
+`bundle install` resolves — and tells you to build from source
+(`cargo install leakferret-cli`) or set `LEAKFERRET_BIN`. It never downloads.
 
 Add it to a `Gemfile` for project-local use:
 

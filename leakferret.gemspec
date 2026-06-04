@@ -16,9 +16,10 @@ Gem::Specification.new do |spec|
     Precompiled platform gems bundle the native binary inside the gem, so a
     normal `gem install` ships the binary through RubyGems itself: no download,
     no network access, and no Rust toolchain. You can audit exactly what you are
-    about to run with `gem unpack leakferret`. The plain `ruby`-platform gem
-    fetches and checksum-verifies the binary on first use, for platforms without
-    a prebuilt gem and for anyone who prefers to build it themselves.
+    about to run with `gem unpack leakferret`. The gem never fetches and runs a
+    binary off the internet - there is no download code to vet. On a platform
+    without a prebuilt gem, the source gem tells you to build from source
+    (`cargo install leakferret-cli`) or point LEAKFERRET_BIN at a binary.
 
     The API exposes Leakferret.scan, Leakferret.verify, and Leakferret.rewrite
     (each returning Finding objects), plus a `leakferret` command-line tool.
@@ -39,25 +40,27 @@ Gem::Specification.new do |spec|
     exe/*
     README.md
     LICENSE.txt
+    CHANGELOG.md
     .yardopts
   ])
 
-  # Two build modes, selected by the LEAKFERRET_GEM_PLATFORM env var:
+  # Two build modes, selected by the LEAKFERRET_GEM_PLATFORM env var. Neither
+  # downloads anything or ships an extension hook - the gem has no fetch-and-run
+  # code at all.
   #
-  #   unset -> source ("ruby") gem. No binary is bundled; the gem downloads and
-  #            SHA256-verifies the binary on first use (ext/extconf.rb also
-  #            pre-fetches it at install). This covers platforms without a
-  #            prebuilt gem, and anyone who wants to audit or build the binary.
+  #   unset -> source ("ruby") gem. Ships no binary. On a platform without a
+  #            prebuilt gem, lib/leakferret/binary.rb raises with build-from-
+  #            source / LEAKFERRET_BIN instructions. This is the graceful
+  #            fallback so `bundle install` still resolves on, say, Alpine or
+  #            aarch64-linux.
   #
   #   set   -> precompiled platform gem (e.g. x86_64-linux, arm64-darwin). The
   #            release tooling stages the platform binary into lib/leakferret/bin/
-  #            and it ships INSIDE the gem. No download, no network, no extension
-  #            hook. lib/leakferret/binary.rb resolves the bundled binary first.
+  #            and it ships INSIDE the gem; binary.rb resolves it directly.
   gem_platform = ENV.fetch('LEAKFERRET_GEM_PLATFORM', '').strip
 
   if gem_platform.empty?
-    spec.files      = base_files + Dir.glob('ext/**/*.rb')
-    spec.extensions = ['ext/leakferret/extconf.rb']
+    spec.files = base_files
   else
     spec.platform = gem_platform
     bundled = Dir.glob('lib/leakferret/bin/*').reject { |f| File.directory?(f) }
