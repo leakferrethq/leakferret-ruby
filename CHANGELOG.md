@@ -3,7 +3,11 @@
 All notable changes to the `leakferret` gem are documented here. The gem version
 can move independently of the native binary version it targets.
 
-## [0.1.15] - 2026-06-04
+## [0.2.0] - 2026-06-04
+
+Minor bump (not patch): this removes the binary-download fallback, so a
+previously-supported install path is gone on platforms without a prebuilt gem
+(notably arm64-Windows). Breaking change under the 0.x convention.
 
 ### Changed
 - Ship **precompiled platform gems** (x86_64-linux, x86_64-darwin, arm64-darwin,

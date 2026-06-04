@@ -8,7 +8,7 @@ name: release
 # download) plus a source/fallback gem, and attaches build provenance to each.
 #
 # To cut a release: bump lib/leakferret/version.rb, commit, then
-#   git tag v0.1.15 && git push origin v0.1.15
+#   git tag v0.2.0 && git push origin v0.2.0
 
 on:
   push:

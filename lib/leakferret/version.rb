@@ -3,7 +3,7 @@
 module Leakferret
   # The gem's own version (what `gem install leakferret` resolves).
   # @return [String]
-  VERSION = '0.1.15'
+  VERSION = '0.2.0'
 
   # The native binary release this gem bundles and runs. The release workflow
   # stages this version's binary into each precompiled platform gem. Tracks the
