@@ -16,14 +16,17 @@
 
 Ruby gem wrapper around the native [`leakferret`](https://github.com/leakferrethq/leakferret)
 binary. This gem ships no scanning logic of its own: it installs a tiny Ruby
-shim plus a small executable, and downloads the prebuilt, statically-linked
-binary (written in Rust) from GitHub Releases once per platform at install
-time. All the work — scan, classify, verify, rewrite — happens in that single
-binary.
+shim plus the prebuilt, statically-linked engine (written in Rust). All the
+work — scan, classify, verify, rewrite — happens in that single binary.
 
-This is the same packaging pattern used by `ruff`, `biome`, and `esbuild`:
-distributing the toolchain to build a Rust engine on every machine is
-unfriendly, so we ship the compiled engine instead.
+You get a **precompiled platform gem** with the binary bundled inside it, the
+same way `nokogiri` and `sorbet-static` ship their native code, for x86_64
+Linux (glibc), macOS (x86_64 and arm64), and x86_64 Windows. The binary travels
+through RubyGems with the gem — **no download, no network access, no Rust
+toolchain** — and you can audit exactly what you will run with
+`gem unpack leakferret`. The gem has **no fetch-and-run code at all**. On any
+other platform the source gem installs and points you at a one-line fix (build
+from source, or set `LEAKFERRET_BIN`); it never downloads a binary.
 
 ## What leakferret does
 
@@ -57,9 +60,19 @@ from your machine to the provider — leakferret has no servers.
 gem install leakferret
 ```
 
-The platform binary (`leakferret-{version}-{platform}.tar.gz` from GitHub
-Releases) is downloaded automatically on first use and cached under your home
-directory — no Rust toolchain required.
+RubyGems and Bundler select the right precompiled gem for your platform
+automatically, so the binary is already there after `gem install` — no
+first-run download. Inspect it before you trust it:
+
+```bash
+gem unpack leakferret        # the bundled binary is at lib/leakferret/bin/
+```
+
+Released gems carry GitHub build provenance (SLSA), so you can verify each gem
+was built from the tagged source in CI. On a platform without a prebuilt binary
+(e.g. aarch64-linux or Alpine/musl), the source gem still installs — so
+`bundle install` resolves — and tells you to build from source
+(`cargo install leakferret-cli`) or set `LEAKFERRET_BIN`. It never downloads.
 
 Add it to a `Gemfile` for project-local use:
 

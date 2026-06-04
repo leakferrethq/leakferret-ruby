@@ -7,45 +7,28 @@ require_relative 'platform'
 require_relative 'error'
 
 module Leakferret
-  # Resolves (and, if needed, downloads) the native `leakferret` binary.
+  # Resolves the native `leakferret` binary that ships inside the gem.
   #
-  # The binary is fetched into an absolute, user-writable cache directory
-  # rather than into the gem's own tree. RubyGems builds extensions in a
-  # throwaway temp dir, so anything written relative to the gem during
-  # `gem install` is discarded — the cache path sidesteps that entirely and
-  # also lets a plain `gem install` (no extension) work.
+  # Precompiled platform gems bundle the binary at lib/leakferret/bin/. There is
+  # deliberately no download path: the gem either carries the binary for your
+  # platform or it tells you how to provide one. Nothing here touches the
+  # network, so what you `gem unpack` is exactly what runs - the whole gem is
+  # auditable, with no fetch-and-execute code to vet.
   #
   # @api private
   module Binary
-    # A binary vendored inside the gem, if one was shipped (normally empty).
+    # Where a precompiled platform gem stages the native binary.
     BUNDLED_DIR = Pathname.new(__dir__).join('bin').freeze
-
-    # SHA256 of each release tarball, pinned to BINARY_VERSION. The download is
-    # verified against these before the archive is ever unpacked, so a tampered
-    # or corrupted release asset is rejected instead of being executed. Because
-    # the digests live in the gem source, auditing the published gem tells you
-    # exactly which binary bytes it will run. Regenerate on every binary bump
-    # from the release's `*.tar.gz.sha256` files.
-    CHECKSUMS = {
-      'aarch64-apple-darwin'     => '363b1da65bf34d2c89c37aa2e00eaa03d49c8595cc5b8bb752a344dacf21d7da',
-      'aarch64-pc-windows-msvc'  => 'b009e852af7eb73dc203e9cb343bec80a1727075d6a35be4ff9567191fd57ca9',
-      'x86_64-apple-darwin'      => '3af3d7f22a8d127053df123033b0b6777701310733d643406754423d6b1d3912',
-      'x86_64-pc-windows-msvc'   => '3f038f55cfded63ebc2f8c16c1edbdd1ddcd36ae43a872b91f5aaeed93438fc1',
-      'x86_64-unknown-linux-gnu' => 'ba28ac5ef5a44d47f162f3c424c1465da5bbd17fb7292f60d3bd3cf3b2d362a4'
-    }.freeze
 
     module_function
 
-    # Absolute path to the native binary, downloading it on first use if
-    # necessary. Resolution order:
-    #   1. LEAKFERRET_BIN          — explicit override
-    #   2. lib/leakferret/bin/     — a binary vendored in the gem
-    #   3. the per-version cache   — fetched on a prior run or at install
-    #   4. download into the cache now
+    # Absolute path to the native binary. Resolution order:
+    #   1. LEAKFERRET_BIN             - explicit override
+    #   2. lib/leakferret/bin/<name>  - bundled by the precompiled platform gem
     #
     # @return [String] absolute path to the executable
-    # @raise [BinaryNotFoundError] if the override is missing, or the binary is
-    #   absent and cannot be downloaded
+    # @raise [BinaryNotFoundError] if the override is missing, or no binary is
+    #   bundled for this platform
     def path
       override = ENV['LEAKFERRET_BIN']
       unless override.nil? || override.empty?
@@ -57,119 +40,50 @@ module Leakferret
       end
 
       bundled = BUNDLED_DIR.join(Platform.binary_name)
-      return bundled.to_s if bundled.file?
-
-      return cache_path.to_s if cache_path.file?
-
-      ensure!
-      raise BinaryNotFoundError, install_instructions(cache_path) unless cache_path.file?
-
-      cache_path.to_s
-    end
-
-    # User-writable cache directory, namespaced by the binary version so a
-    # gem upgrade fetches a fresh binary instead of reusing a stale one.
-    #
-    # @return [Pathname] the per-version cache directory
-    def cache_dir
-      base =
-        if Platform.windows?
-          ENV['LOCALAPPDATA'] || File.join(Dir.home, 'AppData', 'Local')
-        else
-          ENV['XDG_CACHE_HOME'] || File.join(Dir.home, '.cache')
-        end
-      Pathname.new(base).join('leakferret', BINARY_VERSION)
-    end
-
-    # @return [Pathname] the cached binary's full path for this platform
-    def cache_path
-      cache_dir.join(Platform.binary_name)
-    end
-
-    # @return [String] the GitHub release download URL for this platform's tarball
-    def download_url
-      'https://github.com/leakferrethq/leakferret/releases/download/' \
-        "v#{BINARY_VERSION}/leakferret-#{BINARY_VERSION}-#{Platform.triple}.tar.gz"
-    end
-
-    # Download, checksum-verify, and unpack the binary into the cache.
-    # Idempotent: a no-op when the binary is already cached. The SHA256 is
-    # checked against the pinned {CHECKSUMS} value before anything is written
-    # or marked executable, so a tampered or truncated asset is rejected.
-    #
-    # @return [String] absolute path to the cached binary
-    # @raise [BinaryNotFoundError] on an unknown platform, a checksum mismatch,
-    #   or a binary missing from the downloaded archive
-    def ensure!
-      dest = cache_path
-      return dest.to_s if dest.file?
-
-      require 'fileutils'
-      require 'open-uri'
-      require 'zlib'
-      require 'digest'
-      require 'stringio'
-      require 'rubygems/package'
-
-      expected = CHECKSUMS[Platform.triple]
-      if expected.nil?
-        raise BinaryNotFoundError,
-              "no pinned checksum for platform #{Platform.triple}; refusing to run an " \
-              'unverified binary. Build from source and set LEAKFERRET_BIN instead.'
-      end
-
-      FileUtils.mkdir_p(dest.dirname)
-
-      # Download the whole tarball, verify its SHA256 against the pinned value,
-      # and only then unpack. Nothing is written to the cache (let alone marked
-      # executable) until the bytes match, so a tampered or truncated release
-      # asset is rejected rather than run.
-      tarball = URI.open(download_url, &:read) # rubocop:disable Security/Open
-      actual = Digest::SHA256.hexdigest(tarball)
-      unless actual.casecmp?(expected)
-        raise BinaryNotFoundError,
-              "checksum mismatch for #{download_url}\n" \
-              "  expected #{expected}\n  got      #{actual}\n" \
-              'Refusing to install a binary that does not match the pinned hash.'
-      end
-
-      # Unpack in pure Ruby (no external `tar`, which on Windows mis-reads `C:\`
-      # as a remote host). The archive nests everything under
-      # leakferret-<version>-<triple>/, so match by basename.
-      found = false
-      Zlib::GzipReader.wrap(StringIO.new(tarball)) do |gz|
-        Gem::Package::TarReader.new(gz) do |tar|
-          tar.each do |entry|
-            next unless entry.file?
-            next unless File.basename(entry.full_name) == Platform.binary_name
-
-            File.binwrite(dest, entry.read)
-            found = true
+      if bundled.file?
+        # Make sure it is executable in case the mode did not survive packaging
+        # or install; the gem dir is usually writable, a read-only one is
+        # harmless to skip.
+        unless Platform.windows? || bundled.executable?
+          begin
+            bundled.chmod(0o755)
+          rescue StandardError
+            # best effort
           end
         end
+        return bundled.to_s
       end
-      raise BinaryNotFoundError, "binary not found inside #{download_url}" unless found
 
-      FileUtils.chmod(0o755, dest) unless Platform.windows?
-      dest.to_s
+      raise BinaryNotFoundError, no_binary_message
     end
 
-    # Human-readable fallback message shown when the binary is absent and the
-    # automatic download failed.
+    # Message shown when the source/fallback gem is installed on a platform with
+    # no precompiled binary. No automatic download is attempted - the user
+    # provides the binary, or builds it.
     #
-    # @param candidate [Pathname] the cache path the binary was expected at
-    # @return [String] multi-line manual-install instructions
-    def install_instructions(candidate)
+    # @return [String] multi-line build-from-source instructions
+    def no_binary_message
+      plat =
+        begin
+          Gem::Platform.local.to_s
+        rescue StandardError
+          RUBY_PLATFORM
+        end
+
       <<~MSG
-        leakferret native binary not found, and the automatic download failed.
+        No prebuilt leakferret binary ships for this platform (#{plat}).
 
-        Expected it at:
-          #{candidate}
+        leakferret publishes precompiled gems for x86_64 and arm64 macOS,
+        x86_64 Linux (glibc), and x86_64 Windows. On any other platform, provide
+        the binary yourself - either of these works:
 
-        Download the binary for your platform from:
-          https://github.com/leakferrethq/leakferret/releases
+          1. Build from source and point LEAKFERRET_BIN at it:
+               cargo install leakferret-cli
+               export LEAKFERRET_BIN="$(command -v leakferret)"
 
-        then either place it at the path above or point LEAKFERRET_BIN at it.
+          2. Download a release binary for your platform from
+               https://github.com/leakferrethq/leakferret/releases
+             and set LEAKFERRET_BIN to its absolute path.
       MSG
     end
   end

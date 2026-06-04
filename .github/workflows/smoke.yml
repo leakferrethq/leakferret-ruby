@@ -1,8 +1,10 @@
 name: smoke
 
-# Real end-to-end install + scan on every OS. This downloads the published
-# release binary at `gem install` time, so it only passes once
-# leakferrethq/leakferret v0.1.0 is public.
+# End-to-end check on every OS: build the precompiled platform gem for the
+# runner (the native binary staged inside the gem), install it, and scan. The
+# install does not download anything - lib/leakferret/binary.rb resolves the
+# bundled binary first - so this proves the no-download platform-gem path works.
+# It also builds the source/fallback gem to keep that path compiling.
 on:
   workflow_dispatch:
   push:
@@ -10,7 +12,7 @@ on:
 
 jobs:
   install-and-scan:
-    name: gem install + scan (${{ matrix.os }})
+    name: platform gem install + scan (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -21,11 +23,30 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
-      - name: Build and install the gem (downloads the release binary)
+
+      - name: Build + install the precompiled platform gem (binary bundled, no download)
         shell: bash
         run: |
-          gem build leakferret.gemspec
-          gem install --local ./leakferret-*.gem
+          set -euo pipefail
+          binver="$(ruby -r ./lib/leakferret/version -e 'print Leakferret::BINARY_VERSION')"
+          case "$RUNNER_OS" in
+            Linux)   gem_plat=x86_64-linux; triple=x86_64-unknown-linux-gnu; binname=leakferret ;;
+            macOS)
+              if [ "$(uname -m)" = "arm64" ]; then gem_plat=arm64-darwin; triple=aarch64-apple-darwin
+              else gem_plat=x86_64-darwin; triple=x86_64-apple-darwin; fi
+              binname=leakferret ;;
+            Windows) gem_plat=x64-mingw-ucrt; triple=x86_64-pc-windows-msvc; binname=leakferret.exe ;;
+          esac
+          rm -rf lib/leakferret/bin /tmp/ex
+          mkdir -p lib/leakferret/bin /tmp/ex
+          curl -fsSL "https://github.com/leakferrethq/leakferret/releases/download/v${binver}/leakferret-${binver}-${triple}.tar.gz" -o /tmp/lf.tar.gz
+          tar -xzf /tmp/lf.tar.gz -C /tmp/ex
+          binpath="$(find /tmp/ex -type f -name "$binname" | head -1)"
+          cp "$binpath" "lib/leakferret/bin/${binname}"
+          chmod +x "lib/leakferret/bin/${binname}" || true
+          LEAKFERRET_GEM_PLATFORM="$gem_plat" gem build leakferret.gemspec
+          gem install --local --no-document leakferret-*-"${gem_plat}".gem
+
       - name: Plant a secret and scan with the installed command
         shell: bash
         run: |
@@ -34,3 +55,9 @@ jobs:
           out="$(leakferret scan . || true)"
           echo "$out"
           echo "$out" | grep -q 'aws_access_key' || { echo "::error::gem did not detect the planted secret"; exit 1; }
+
+      - name: Source/fallback gem still builds
+        shell: bash
+        run: |
+          rm -rf lib/leakferret/bin
+          gem build leakferret.gemspec

@@ -1,11 +1,14 @@
 name: release
 
-# Publishes the gem to RubyGems via Trusted Publishing (OIDC) when a
-# vX.Y.Z tag is pushed — no API key stored anywhere. Authorize this repo +
-# this workflow at: https://rubygems.org/gems/leakferret -> Trusted Publishers.
+# Publishes the gem to RubyGems via Trusted Publishing (OIDC) when a vX.Y.Z tag
+# is pushed - no API key stored anywhere. Authorize this repo + this workflow at
+# https://rubygems.org/gems/leakferret -> Trusted Publishers.
+#
+# Builds precompiled platform gems (the native binary bundled inside the gem, no
+# download) plus a source/fallback gem, and attaches build provenance to each.
 #
 # To cut a release: bump lib/leakferret/version.rb, commit, then
-#   git tag v0.1.5 && git push origin v0.1.5
+#   git tag v0.2.0 && git push origin v0.2.0
 
 on:
   push:
@@ -13,7 +16,8 @@ on:
 
 permissions:
   contents: read
-  id-token: write # required for OIDC trusted publishing
+  id-token: write      # OIDC: trusted publishing + provenance signing
+  attestations: write  # build provenance attestations
 
 jobs:
   release:
@@ -23,9 +27,58 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
-      - name: Build gem
-        run: gem build leakferret.gemspec
+
+      - name: Build platform gems + source gem
+        run: |
+          set -euo pipefail
+          binver="$(ruby -r ./lib/leakferret/version -e 'print Leakferret::BINARY_VERSION')"
+          mkdir -p pkg
+
+          # Stage the prebuilt release binary for one target and build the
+          # matching precompiled platform gem. RubyGems auto-selects it per host.
+          build_platform() {
+            gem_plat="$1"; triple="$2"; binname="$3"
+            echo "::group::$gem_plat ($triple)"
+            rm -rf lib/leakferret/bin /tmp/ex
+            mkdir -p lib/leakferret/bin /tmp/ex
+            url="https://github.com/leakferrethq/leakferret/releases/download/v${binver}/leakferret-${binver}-${triple}.tar.gz"
+            curl -fsSL "$url" -o /tmp/lf.tar.gz
+            tar -xzf /tmp/lf.tar.gz -C /tmp/ex
+            binpath="$(find /tmp/ex -type f -name "$binname" | head -1)"
+            test -n "$binpath" || { echo "::error::$binname not found in $url"; exit 1; }
+            cp "$binpath" "lib/leakferret/bin/${binname}"
+            chmod +x "lib/leakferret/bin/${binname}" || true
+            LEAKFERRET_GEM_PLATFORM="$gem_plat" gem build leakferret.gemspec
+            mv leakferret-*.gem pkg/
+            echo "::endgroup::"
+          }
+
+          build_platform x86_64-linux   x86_64-unknown-linux-gnu leakferret
+          build_platform x86_64-darwin  x86_64-apple-darwin      leakferret
+          build_platform arm64-darwin   aarch64-apple-darwin     leakferret
+          build_platform x64-mingw-ucrt x86_64-pc-windows-msvc   leakferret.exe
+
+          # Source / fallback gem (ruby platform): no bundled binary, downloads
+          # + checksum-verifies on first use. Covers platforms without a prebuilt
+          # gem (e.g. aarch64-linux) and anyone who wants to build from source.
+          rm -rf lib/leakferret/bin
+          gem build leakferret.gemspec
+          mv leakferret-*.gem pkg/
+
+          echo "Built:"; ls -la pkg/
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'pkg/*.gem'
+
       - name: Configure RubyGems credentials (OIDC)
         uses: rubygems/configure-rubygems-credentials@v1.0.0
-      - name: Push gem
-        run: gem push leakferret-*.gem
+
+      - name: Push gems
+        run: |
+          set -euo pipefail
+          for g in pkg/*.gem; do
+            echo "pushing $g"
+            gem push "$g"
+          done
