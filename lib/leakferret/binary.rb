@@ -57,7 +57,19 @@ module Leakferret
       end
 
       bundled = BUNDLED_DIR.join(Platform.binary_name)
-      return bundled.to_s if bundled.file?
+      if bundled.file?
+        # A precompiled platform gem ships the binary here. Make sure it is
+        # executable in case the mode did not survive packaging/install; the
+        # gem dir is usually writable, and a read-only one is harmless to skip.
+        unless Platform.windows? || bundled.executable?
+          begin
+            bundled.chmod(0o755)
+          rescue StandardError
+            # best effort
+          end
+        end
+        return bundled.to_s
+      end
 
       return cache_path.to_s if cache_path.file?
 
